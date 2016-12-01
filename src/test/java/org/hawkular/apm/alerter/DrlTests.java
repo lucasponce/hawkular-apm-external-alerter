@@ -45,7 +45,7 @@ public class DrlTests {
 
     static String testTenant = "28026b36-8fe4-4332-84c8-524e173a68bf";
 
-    private void runDrlWithEvents(String drl, Collection<Event> events) {
+    private void runDrlWithEvents(String drl, Collection<Event> events, String...expected) {
         final KieBaseConfiguration kieBaseConfiguration = KnowledgeBaseFactory.newKnowledgeBaseConfiguration();
         final KieBase kieBase = new KieHelper().addContent(drl, ResourceType.DRL).build(kieBaseConfiguration);
         final KieSession kieSession = kieBase.newKieSession();
@@ -69,8 +69,8 @@ public class DrlTests {
         kieSession.halt();
         kieSession.dispose();
 
-        Assert.assertEquals(1, results.size());
-        Assert.assertTrue(results.contains("user1"));
+        Assert.assertEquals(expected.length, results.size());
+        Assert.assertTrue(results.containsAll(Arrays.asList(expected)));
 
         executor.shutdown();
         try {
@@ -125,8 +125,8 @@ public class DrlTests {
     public void marketingScenarioTest() {
         String drl = " import org.hawkular.alerts.api.model.event.Event; \n " +
                 " import java.util.List; \n " +
-                " declare AccountId accountId : String end \n " +
                 " global java.util.List results; \n" +
+                " declare AccountId accountId : String end \n " +
                 " rule \"Extract accountId\" \n " +
                 " when \n " +
                 "   Event( $accountId : tags[\"accountId\"] != null ) \n " +
@@ -146,7 +146,7 @@ public class DrlTests {
                 "               $sizeEvents > 2, \n " +
                 "               $lastEvent - $firstEvent < 10000 ) \n " +
                 " then \n " +
-                "   System.out.println(\"Account \" + $accountId + \" has \" + $sizeEvents + " +
+                "   System.out.println(\"Account: \" + $accountId + \" has \" + $sizeEvents + " +
                 "                      \" events in \" + ($lastEvent.longValue() - $firstEvent.longValue()) + \" ms \"); \n " +
                 "   System.out.println(\"Events: \" + $eventList); \n " +
                 "   $eventList.stream().forEach(e -> retract( e )); \n " +
@@ -154,11 +154,11 @@ public class DrlTests {
                 " end \n " +
                 " \n ";
 
-        runDrlWithEvents(drl, marketingScenario());
+        runDrlWithEvents(drl, marketingScenario(), "user1");
     }
 
     Collection<Event> fraudScenario() {
-        // User1 buys 5 times in < 10 seconds
+        // User1 buys 5 times in < 10 seconds from different locations
         long now = System.currentTimeMillis();
         Event e1 = new Event(testTenant, uuid(), now, "apm-data-id", "TraceCompletion", "Buy Book");
         e1.addTag("duration", "1000");
@@ -181,7 +181,7 @@ public class DrlTests {
         e5.addTag("accountId", "user1");
         e5.addTag("location", "ip1");
 
-        // User2 buys 3 times > 10 seconds
+        // User2 buys 3 times > 10 seconds from single location
         Event e6 = new Event(testTenant, uuid(), now, "apm-data-id", "TraceCompletion", "Buy Book");
         e6.addTag("duration", "1000");
         e6.addTag("accountId", "user2");
@@ -195,6 +195,7 @@ public class DrlTests {
         e8.addTag("accountId", "user2");
         e8.addTag("location", "ip5");
 
+        // User3 buys 5 times in < 10 seconds from single location
         Event e11 = new Event(testTenant, uuid(), now, "apm-data-id", "TraceCompletion", "Buy Book");
         e11.addTag("duration", "1000");
         e11.addTag("accountId", "user3");
@@ -223,8 +224,8 @@ public class DrlTests {
     public void fraudScenarioTest() {
         String drl = " import org.hawkular.alerts.api.model.event.Event; \n " +
                 " import java.util.List; \n " +
-                " declare AccountId accountId : String end \n " +
                 " global java.util.List results; \n" +
+                " declare AccountId accountId : String end \n " +
                 " rule \"Extract accountId\" \n " +
                 " when \n " +
                 "   Event( $accountId : tags[\"accountId\"] != null ) \n " +
@@ -246,7 +247,7 @@ public class DrlTests {
                 "               $lastEvent - $firstEvent < 10000," +
                 "               $locations.size > 1 ) \n " +
                 " then \n " +
-                "   System.out.println(\"Account \" + $accountId + \" has \" + $sizeEvents + " +
+                "   System.out.println(\"Account: \" + $accountId + \" has \" + $sizeEvents + " +
                 "                      \" events in \" + ($lastEvent.longValue() - $firstEvent.longValue()) " +
                 "                      + \" ms from these locations: \" + $locations); \n " +
                 "   System.out.println(\"Events: \" + $events); \n " +
@@ -255,7 +256,103 @@ public class DrlTests {
                 " end \n " +
                 " \n ";
 
-        runDrlWithEvents(drl, fraudScenario());
+        runDrlWithEvents(drl, fraudScenario(), "user1");
+    }
+
+    Collection<Event> customerRetentionScenario() {
+        long now = System.currentTimeMillis();
+        Event e1 = new Event(testTenant, uuid(), now, "apm-data-id", "Credit Check", "Exceptionally Good");
+        e1.addTag("duration", "1000");
+        e1.addTag("traceId", "trace1");
+        e1.addTag("accountId", "user1");
+        Event e2 = new Event(testTenant, uuid(), now + 1, "apm-data-id", "Stock Check", "Out of Stock");
+        e2.addTag("duration", "2000");
+        e2.addTag("traceId", "trace1");
+        e2.addTag("accountId", "user1");
+
+        Event e3 = new Event(testTenant, uuid(), now + 2, "apm-data-id", "Credit Check", "Good");
+        e3.addTag("duration", "1500");
+        e3.addTag("traceId", "trace2");
+        e3.addTag("accountId", "user1");
+        Event e4 = new Event(testTenant, uuid(), now + 3, "apm-data-id", "Stock Check", "Out of Stock");
+        e4.addTag("duration", "2000");
+        e4.addTag("traceId", "trace2");
+        e4.addTag("accountId", "user1");
+
+        Event e5 = new Event(testTenant, uuid(), now + 4, "apm-data-id", "Credit Check", "Exceptionally Good");
+        e5.addTag("duration", "1500");
+        e5.addTag("traceId", "trace3");
+        e5.addTag("accountId", "user1");
+        Event e6 = new Event(testTenant, uuid(), now + 5, "apm-data-id", "Stock Check", "Available");
+        e6.addTag("duration", "2000");
+        e6.addTag("traceId", "trace3");
+        e6.addTag("accountId", "user1");
+
+        Event e11 = new Event(testTenant, uuid(), now, "apm-data-id", "Credit Check", "Exceptionally Good");
+        e11.addTag("duration", "1000");
+        e11.addTag("traceId", "trace4");
+        e11.addTag("accountId", "user2");
+        Event e12 = new Event(testTenant, uuid(), now + 1, "apm-data-id", "Stock Check", "Out of Stock");
+        e12.addTag("duration", "2000");
+        e12.addTag("traceId", "trace4");
+        e12.addTag("accountId", "user2");
+
+        Event e13 = new Event(testTenant, uuid(), now + 2, "apm-data-id", "Credit Check", "Good");
+        e13.addTag("duration", "1500");
+        e13.addTag("traceId", "trace5");
+        e13.addTag("accountId", "user2");
+        Event e14 = new Event(testTenant, uuid(), now + 3, "apm-data-id", "Stock Check", "Out of Stock");
+        e14.addTag("duration", "2000");
+        e14.addTag("traceId", "trace5");
+        e14.addTag("accountId", "user2");
+
+        Event e15 = new Event(testTenant, uuid(), now + 4, "apm-data-id", "Credit Check", "Exceptionally Good");
+        e15.addTag("duration", "1500");
+        e15.addTag("traceId", "trace6");
+        e15.addTag("accountId", "user2");
+        Event e16 = new Event(testTenant, uuid(), now + 5, "apm-data-id", "Stock Check", "Available");
+        e16.addTag("duration", "2000");
+        e16.addTag("traceId", "trace6");
+        e16.addTag("accountId", "user2");
+
+        return Arrays.asList(e1, e2, e3, e4, e5, e6, e11, e12, e13, e14, e15, e16);
+    }
+
+    @Test
+    public void customerRetentionScenarioTest() {
+        String drl = " import org.hawkular.alerts.api.model.event.Event; \n " +
+                " import java.util.List; \n " +
+                " global java.util.List results; \n" +
+                " declare TraceId traceId : String end \n " +
+                " rule \"Extract traceId\" \n " +
+                " when \n " +
+                "   Event( $traceId : tags[\"traceId\"] != null ) \n " +
+                "   not TraceId ( traceId == $traceId  ) \n " +
+                " then \n" +
+                "   insert( new TraceId ( $traceId ) ); \n " +
+                " end \n " +
+                " \n " +
+                " rule \"Custmer Retention Scenario\" \n " +
+                " when" +
+                "   TraceId ( $traceId : traceId ) \n " +
+                "   accumulate( $event : Event( tags[\"traceId\"] == $traceId, \n" +
+                "                               (category == \"Credit Check\" && text == \"Exceptionally Good\") || " +
+                "                               (category == \"Stock Check\" && text == \"Out of Stock\") ); \n " +
+                "               $sizeEvents : count( $event ), \n" +
+                "               $events : collectList( $event )," +
+                "               $users : collectSet( $event.getTags().get(\"accountId\") );" +
+                "               $sizeEvents > 1," +
+                "               $users.size == 1 ) \n " +
+                " then \n " +
+                "   System.out.println(\"TraceId: \" + $traceId + " +
+                "                      \" for user: \" + $users + \" deserves a special offer. \"); " +
+                "   System.out.println(\"Events: \" + $events); \n " +
+                "   $events.stream().forEach(e -> retract( e )); \n " +
+                "   results.addAll( $users ); \n " +
+                " end \n " +
+                " \n ";
+
+        runDrlWithEvents(drl, customerRetentionScenario(), "user1", "user2");
     }
 
 }
