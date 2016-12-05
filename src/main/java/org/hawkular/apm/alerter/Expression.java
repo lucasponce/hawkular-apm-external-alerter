@@ -23,6 +23,9 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.hawkular.alerts.api.model.condition.ExternalCondition;
+import org.hawkular.alerts.api.model.trigger.Trigger;
+
 /**
  * Represent a DSL expression coming from an ExternalCondition which is parsed into a DRL format understandable
  * by the CEP engine.
@@ -33,9 +36,10 @@ import java.util.regex.Pattern;
 public class Expression {
 
     private static final String DRL_HEADER = "  import org.hawkular.alerts.api.model.event.Event; \n" +
-            " import org.hawkular.alerts.api.json.JsonUtil; \n " +
-            " import java.util.List; \n " +
-            " global java.util.List results; \n ";
+            "  import org.hawkular.alerts.api.json.JsonUtil; \n" +
+            "  import java.util.List; \n" +
+            "  import java.util.UUID; \n" +
+            "  global java.util.List results; \n";
     private static final String SEPARATOR_TOKEN = ":";
     private static final String COMMA_TOKEN = ",";
     private static final String EVENT_TOKEN = "event";
@@ -44,15 +48,15 @@ public class Expression {
     private static final String FILTER_TOKEN = "filter(";
     private static final String HAVING_TOKEN = "having(";
     private static final String CTIME_CONSTRAINT = "$ctime : ctime";
-    private static final String FIRST_TIME_TOKEN = "firstTime";
-    private static final String FIRST_TIME_VARIABLE = "\\$firstTime";
+    private static final String FIRST_TIME_TOKEN = "firstTime ";
+    private static final String FIRST_TIME_VARIABLE = "\\$firstTime ";
     private static final String FIRST_TIME_FUNCTION = "$firstTime : min( $ctime )";
-    private static final String LAST_TIME_TOKEN = "lastTime";
-    private static final String LAST_TIME_VARIABLE = "\\$lastTime";
+    private static final String LAST_TIME_TOKEN = "lastTime ";
+    private static final String LAST_TIME_VARIABLE = "\\$lastTime ";
     private static final String LAST_TIME_FUNCTION = "$lastTime : max( $ctime )";
     private static final String COUNT_TAGS_TOKEN = "count.tags.";
-    private static final String COUNT_TOKEN = "count";
-    private static final String COUNT_VARIABLE = "\\$count";
+    private static final String COUNT_TOKEN = "count ";
+    private static final String COUNT_VARIABLE = "\\$count ";
     private static final String COUNT_FUNCTION = "$count : count( $event )";
 
     private static final String EVENTS_FUNCTION = "$events : collectList( $event )";
@@ -61,6 +65,13 @@ public class Expression {
 
     private static final Pattern TAGS_SEARCH = Pattern.compile("tags\\.(\\w+)\\s");
     private static final int GROUP_INDEX = 1;
+
+    private String name;
+    private String alerterId;
+    private String expression;
+    private String tenantId;
+    private String source;
+    private String dataId;
 
     private String drlGroupByDeclare;
     private String drlGroupByObject;
@@ -71,7 +82,17 @@ public class Expression {
 
     private String drl;
 
-    public Expression(String name, String expression) {
+    public Expression(Trigger trigger, ExternalCondition condition) {
+        if (trigger == null || condition == null) {
+            throw new IllegalArgumentException("Trigger or Condition must be not null");
+        }
+        name = trigger.getName() + "-" + condition.getConditionId();
+        alerterId = condition.getAlerterId();
+        expression = condition.getExpression();
+        tenantId = trigger.getTenantId();
+        source = trigger.getSource();
+        dataId = condition.getDataId();
+
         if (isEmpty(expression)) {
             throw new IllegalArgumentException("Expression must be not null");
         }
@@ -104,7 +125,7 @@ public class Expression {
     }
 
     private void parseGroupBy(String section) {
-        int endSection = section.indexOf(')');
+        int endSection = section.lastIndexOf(')');
         if (endSection == -1) {
             throw new IllegalArgumentException("Expression [" + section + " must contain a valid 'groupBy()'");
         }
@@ -127,10 +148,13 @@ public class Expression {
             drlGroupByConstraint = " " + field + " == $" + field + " ";
         }
         drlEventConstraints.add(drlGroupByConstraint);
-        drlGroupByDeclare =  " declare " + type + " " + field + " : String end \n " +
-                             " rule \"Extract " + field + "\" \n " +
-                             " when \n " +
-                             "   Event ( $" + field + " : ";
+        drlGroupByDeclare =  "  declare " + type + " " + field + " : String end \n" +
+                             "  rule \"Extract " + field + "\" \n" +
+                             "  when \n" +
+                             "    Event ( tenantId == \"" + tenantId + "\", \n" +
+                             "            dataSource == \"" + source + "\", \n" +
+                             "            dataId == \"" + dataId + "\", \n" +
+                             "            $" + field + " : ";
         if (tags) {
             drlGroupByDeclare += "tags[ \"" + field + "\" ] != null ) \n ";
         } else {
@@ -143,7 +167,7 @@ public class Expression {
     }
 
     private void parseFilter(String section) {
-        int endSection = section.indexOf(')');
+        int endSection = section.lastIndexOf(')');
         if (endSection == -1) {
             throw new IllegalArgumentException("Expression [" + section + " must contain a valid 'filter()'");
         }
@@ -158,7 +182,7 @@ public class Expression {
     }
 
     private void parseHaving(String section) {
-        int endSection = section.indexOf(')');
+        int endSection = section.lastIndexOf(')');
         if (endSection == -1) {
             throw new IllegalArgumentException("Expression [" + section + " must contain a valid 'having()'");
         }
@@ -191,13 +215,13 @@ public class Expression {
                 " rule \"" + name + "\" \n " +
                 " when \n " +
                 "   " + drlGroupByObject + " \n " +
-                "   accumulate( $event : Event( ";
+                "   accumulate( $event : Event( tenantId == \"" + tenantId + "\", \n" +
+                "                                dataSource == \"" + source + "\", \n" +
+                "                                dataId == \"" + dataId + "\", \n";
         Iterator<String> it = drlEventConstraints.iterator();
-        boolean first = true;
         while (it.hasNext()) {
             String eventConstraint = it.next();
-            drl += first ? eventConstraint : BLANK + BLANK + eventConstraint;
-            first = false;
+            drl += BLANK + BLANK + eventConstraint;
             if (it.hasNext()) {
                 drl += ", \n";
             }
@@ -220,8 +244,13 @@ public class Expression {
         }
         drl += ") \n";
         drl +=  " then \n" +
-                "   Event result = new Event(); \n" +
-                "   results.addAll( $events ); \n" +
+                "   Event result = new Event(\"" + tenantId + "\", \n" +
+                "                            UUID.randomUUID().toString(), \n" +
+                "                            \"" + dataId +"\", \n" +
+                "                            \"" + alerterId + "\", \n" +
+                "                            \"" + expression.replaceAll("\"", "'") + "\"); \n" +
+                "   result.addContext(\"events\", JsonUtil.toJson($events)); \n" +
+                "   results.add( result ); \n" +
                 "   $events.stream().forEach(e -> retract( e )); \n" +
                 " end \n ";
     }

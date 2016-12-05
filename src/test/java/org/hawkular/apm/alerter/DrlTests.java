@@ -17,7 +17,6 @@
 package org.hawkular.apm.alerter;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -44,14 +43,13 @@ public class DrlTests {
 
     static String testTenant = "28026b36-8fe4-4332-84c8-524e173a68bf";
 
-    private void runDrlWithEvents(String drl, Collection<Event> events, String...expected) {
+    private void runDrlWithEvents(String drl, Collection<Event> events, List results) {
         final KieBaseConfiguration kieBaseConfiguration = KnowledgeBaseFactory.newKnowledgeBaseConfiguration();
         final KieBase kieBase = new KieHelper().addContent(drl, ResourceType.DRL).build(kieBaseConfiguration);
         final KieSession kieSession = kieBase.newKieSession();
         kieSession.addEventListener(new DebugAgendaEventListener());
         kieSession.addEventListener(new DebugRuleRuntimeEventListener());
 
-        List<String> results = new ArrayList<>();
         kieSession.setGlobal("results", results);
 
         final ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -67,9 +65,6 @@ public class DrlTests {
 
         kieSession.halt();
         kieSession.dispose();
-
-        Assert.assertEquals(expected.length, results.size());
-        Assert.assertTrue(results.containsAll(Arrays.asList(expected)));
 
         executor.shutdown();
         try {
@@ -115,7 +110,59 @@ public class DrlTests {
                 " end \n " +
                 " \n ";
 
-        runDrlWithEvents(drl, TestScenarios.marketingScenario(), "user1");
+        ArrayList<String> results = new ArrayList<>();
+        runDrlWithEvents(drl, TestScenarios.marketingScenario(), results);
+        Assert.assertEquals(1, results.size());
+        Assert.assertTrue(results.contains("user1"));
+    }
+
+    @Test
+    public void marketingScenarioGenerated() {
+        String drl = "  import org.hawkular.alerts.api.model.event.Event; \n" +
+                "  import org.hawkular.alerts.api.json.JsonUtil; \n" +
+                "  import java.util.List; \n" +
+                "  import java.util.UUID; \n" +
+                "  global java.util.List results; \n" +
+                "  declare AccountId accountId : String end \n" +
+                "  rule \"Extract accountId\" \n" +
+                "  when \n" +
+                "    Event ( tenantId == \"28026b36-8fe4-4332-84c8-524e173a68bf\", \n" +
+                "            dataSource == \"_none_\", \n" +
+                "            dataId == \"apm-data-id\", \n" +
+                "            $accountId : tags[ \"accountId\" ] != null ) \n" +
+                "    not AccountId ( accountId == $accountId ) \n" +
+                "  then \n" +
+                "    insert ( new AccountId ( $accountId ) ); \n" +
+                "  end \n" +
+                "  \n" +
+                "  rule \"Marketing Scenario--marketing-scenario-FIRING-1-1\" \n" +
+                "  when \n" +
+                "    AccountId ( $accountId : accountId ) \n" +
+                "    accumulate( $event : Event( tenantId == \"28026b36-8fe4-4332-84c8-524e173a68bf\", \n" +
+                "                                dataSource == \"_none_\", \n" +
+                "                                dataId == \"apm-data-id\", \n" +
+                "                                $ctime : ctime, \n" +
+                "                                 tags[ \"accountId\" ] == $accountId ); \n" +
+                "                $firstTime : min( $ctime ), \n" +
+                "                $count : count( $event ), \n" +
+                "                $events : collectList( $event ), \n" +
+                "                $lastTime : max( $ctime ); \n" +
+                "                $count > 2, \n" +
+                "                $lastTime - $firstTime < 10000) \n" +
+                " then \n" +
+                "   Event result = new Event(\"28026b36-8fe4-4332-84c8-524e173a68bf\", \n" +
+                "                            UUID.randomUUID().toString(), \n" +
+                "                            \"apm-data-id\", \n" +
+                "                            \"HawkularAPM\", \n" +
+                "                            \"event:groupBy(tags.accountId):having(firstTime - lastTime < 10000, count > 2)\"); \n" +
+                "   result.addContext(\"events\", JsonUtil.toJson($events)); \n" +
+                "   results.add( result ); \n" +
+                "   $events.stream().forEach(e -> retract( e )); \n" +
+                " end \n";
+
+        ArrayList<Event> results = new ArrayList<>();
+        runDrlWithEvents(drl, TestScenarios.marketingScenario(), results);
+        Assert.assertEquals(1, results.size());
     }
 
     @Test
@@ -154,7 +201,60 @@ public class DrlTests {
                 " end \n " +
                 " \n ";
 
-        runDrlWithEvents(drl, TestScenarios.fraudScenario(), "user1");
+        ArrayList<String> results = new ArrayList<>();
+        runDrlWithEvents(drl, TestScenarios.fraudScenario(), results);
+        Assert.assertEquals(1, results.size());
+        Assert.assertTrue(results.contains("user1"));
+    }
+
+    @Test
+    public void fraudScenarioGenerated() {
+        String drl = "  import org.hawkular.alerts.api.model.event.Event; \n" +
+                "  import org.hawkular.alerts.api.json.JsonUtil; \n" +
+                "  import java.util.List; \n" +
+                "  import java.util.UUID; \n" +
+                "  global java.util.List results; \n" +
+                "  declare AccountId accountId : String end \n" +
+                "  rule \"Extract accountId\" \n" +
+                "  when \n" +
+                "    Event ( tenantId == \"28026b36-8fe4-4332-84c8-524e173a68bf\", \n" +
+                "            dataSource == \"_none_\", \n" +
+                "            dataId == \"apm-data-id\", \n" +
+                "            $accountId : tags[ \"accountId\" ] != null ) \n" +
+                "    not AccountId ( accountId == $accountId ) \n" +
+                "  then \n" +
+                "    insert ( new AccountId ( $accountId ) ); \n" +
+                "  end \n" +
+                "  \n" +
+                "  rule \"Fraud Scenario--fraud-scenario-FIRING-1-1\" \n" +
+                "  when \n" +
+                "    AccountId ( $accountId : accountId ) \n" +
+                "    accumulate( $event : Event( tenantId == \"28026b36-8fe4-4332-84c8-524e173a68bf\", \n" +
+                "                                dataSource == \"_none_\", \n" +
+                "                                dataId == \"apm-data-id\", \n" +
+                "                                $ctime : ctime, \n" +
+                "                                 tags[ \"accountId\" ] == $accountId ); \n" +
+                "                $firstTime : min( $ctime ), \n" +
+                "                $count : count( $event ), \n" +
+                "                $events : collectList( $event ), \n" +
+                "                $lastTime : max( $ctime ), \n" +
+                "                $locationSet : collectSet($event.getTags().get(\"location\") ); \n" +
+                "                $count > 1, \n" +
+                "                $lastTime - $firstTime < 10000, \n" +
+                "                $locationSet.size > 1) \n" +
+                " then \n" +
+                "   Event result = new Event(\"28026b36-8fe4-4332-84c8-524e173a68bf\", \n" +
+                "                            UUID.randomUUID().toString(), \n" +
+                "                            \"apm-data-id\", \n" +
+                "                            \"HawkularAPM\", \n" +
+                "                            \"event:groupBy(tags.accountId):having(lastTime - firstTime < 10000, count > 1, count.tags.location > 1)\"); \n" +
+                "   result.addContext(\"events\", JsonUtil.toJson($events)); \n" +
+                "   results.add( result ); \n" +
+                "   $events.stream().forEach(e -> retract( e )); \n" +
+                " end \n";
+        ArrayList<Event> results = new ArrayList<>();
+        runDrlWithEvents(drl, TestScenarios.fraudScenario(), results);
+        Assert.assertEquals(1, results.size());
     }
 
     @Test
@@ -191,7 +291,59 @@ public class DrlTests {
                 " end \n " +
                 " \n ";
 
-        runDrlWithEvents(drl, TestScenarios.customerRetentionScenario(), "user1", "user2");
+        ArrayList<String> results = new ArrayList<>();
+        runDrlWithEvents(drl, TestScenarios.customerRetentionScenario(), results);
+        Assert.assertEquals(2, results.size());
+        Assert.assertTrue(results.contains("user1"));
+        Assert.assertTrue(results.contains("user2"));
+    }
+
+    @Test
+    public void customerRetentionScenarioGenerated() {
+        String drl = "  import org.hawkular.alerts.api.model.event.Event; \n" +
+                "  import org.hawkular.alerts.api.json.JsonUtil; \n" +
+                "  import java.util.List; \n" +
+                "  import java.util.UUID; \n" +
+                "  global java.util.List results; \n" +
+                "  declare TraceId traceId : String end \n" +
+                "  rule \"Extract traceId\" \n" +
+                "  when \n" +
+                "    Event ( tenantId == \"28026b36-8fe4-4332-84c8-524e173a68bf\", \n" +
+                "            dataSource == \"_none_\", \n" +
+                "            dataId == \"apm-data-id\", \n" +
+                "            $traceId : tags[ \"traceId\" ] != null ) \n" +
+                "    not TraceId ( traceId == $traceId ) \n" +
+                "  then \n" +
+                "    insert ( new TraceId ( $traceId ) ); \n" +
+                "  end \n" +
+                "  \n" +
+                "  rule \"Customer Retention Scenario--customer-retention-scenario-FIRING-1-1\" \n" +
+                "  when \n" +
+                "    TraceId ( $traceId : traceId ) \n" +
+                "    accumulate( $event : Event( tenantId == \"28026b36-8fe4-4332-84c8-524e173a68bf\", \n" +
+                "                                dataSource == \"_none_\", \n" +
+                "                                dataId == \"apm-data-id\", \n" +
+                "                                (category == \"Credit Check\" && text == \"Exceptionally Good\") ||(category == \"Stock Check\" && text == \"Out of Stock\"), \n" +
+                "                                 tags[ \"traceId\" ] == $traceId ); \n" +
+                "                $count : count( $event ), \n" +
+                "                $events : collectList( $event ), \n" +
+                "                $accountIdSet : collectSet($event.getTags().get(\"accountId\") ); \n" +
+                "                $count > 1, \n" +
+                "                $accountIdSet.size == 1) \n" +
+                " then \n" +
+                "   Event result = new Event(\"28026b36-8fe4-4332-84c8-524e173a68bf\", \n" +
+                "                            UUID.randomUUID().toString(), \n" +
+                "                            \"apm-data-id\", \n" +
+                "                            \"HawkularAPM\", \n" +
+                "                            \"event:groupBy(tags.traceId):filter((category == 'Credit Check' && text == 'Exceptionally Good') ||(category == 'Stock Check' && text == 'Out of Stock')):having(count > 1, count.tags.accountId == 1)\"); \n" +
+                "   result.addContext(\"events\", JsonUtil.toJson($events)); \n" +
+                "   results.add( result ); \n" +
+                "   $events.stream().forEach(e -> retract( e )); \n" +
+                " end ";
+
+        ArrayList<Event> results = new ArrayList<>();
+        runDrlWithEvents(drl, TestScenarios.customerRetentionScenario(), results);
+        Assert.assertEquals(2, results.size());
     }
 
 }

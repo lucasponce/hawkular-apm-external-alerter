@@ -16,6 +16,11 @@
  */
 package org.hawkular.apm.alerter;
 
+import static org.hawkular.alerts.api.model.trigger.Mode.FIRING;
+import static org.hawkular.apm.alerter.TestScenarios.ALERTER_ID;
+import static org.hawkular.apm.alerter.TestScenarios.DATA_ID;
+import static org.hawkular.apm.alerter.TestScenarios.TEST_TENANT;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -26,7 +31,9 @@ import java.util.concurrent.TimeUnit;
 import org.drools.core.event.DebugAgendaEventListener;
 import org.drools.core.event.DebugRuleRuntimeEventListener;
 import org.hawkular.alerts.api.json.JsonUtil;
+import org.hawkular.alerts.api.model.condition.ExternalCondition;
 import org.hawkular.alerts.api.model.event.Event;
+import org.hawkular.alerts.api.model.trigger.Trigger;
 import org.junit.Assert;
 import org.junit.Test;
 import org.kie.api.KieBase;
@@ -81,33 +88,52 @@ public class ExpressionTest {
 
     @Test
     public void marketingScenarioDsl() {
-        String expression = "event:groupBy(tags.accountId):having(firstTime - lastTime < 10000, count > 2)";
-
-        Expression exp = new Expression("Marketing Scenario", expression);
-        System.out.println("RULE: \n");
-        System.out.println(exp.getDrl());
+        Trigger trigger = new Trigger(TEST_TENANT, "marketing-scenario","Marketing Scenario");
+        String expression = "event:groupBy(tags.accountId):having(lastTime - firstTime < 10000, count > 2)";
+        ExternalCondition condition = new ExternalCondition(trigger.getId(), FIRING, DATA_ID, ALERTER_ID, expression);
+        Expression exp = new Expression(trigger, condition);
         Collection<Event> results = runDrlWithEvents(exp.getDrl(), TestScenarios.marketingScenario());
-        JsonUtil.toJson(results);
-        System.out.println(JsonUtil.toJson(results));
+        Assert.assertEquals(1, results.size());
+        List<Event> events = extractEvents(results.iterator().next());
+        Assert.assertEquals(5, events.size());
     }
 
     @Test
     public void fraudScenarioDsl() {
-        String expression = "event:groupBy(tags.accountId):having(firstTime - lastTime < 10000, " +
+        Trigger trigger = new Trigger(TEST_TENANT, "fraud-scenario", "Fraud Scenario");
+        String expression = "event:groupBy(tags.accountId):having(lastTime - firstTime < 10000, " +
                 "count > 1, count.tags.location > 1)";
-
-        Expression exp = new Expression("Fraud Scenario", expression);
-        Assert.assertEquals("", exp.getDrl());
+        ExternalCondition condition = new ExternalCondition(trigger.getId(), FIRING, DATA_ID, ALERTER_ID, expression);
+        Expression exp = new Expression(trigger, condition);
+        Collection<Event> results = runDrlWithEvents(exp.getDrl(), TestScenarios.fraudScenario());
+        Assert.assertEquals(1, results.size());
+        List<Event> events = extractEvents(results.iterator().next());
+        Assert.assertEquals(5, events.size());
     }
 
     @Test
     public void customerRetentionScenarioDsl() {
+        Trigger trigger = new Trigger(TEST_TENANT, "customer-retention-scenario", "Customer Retention Scenario");
         String expression = "event:groupBy(tags.traceId):" +
-                "filter((category == \"Credit Check\" && text == \"Exceptionally Good\") ||" +
+                "filter((category == \"Credit Check\" && text == \"Exceptionally Good\") || " +
                        "(category == \"Stock Check\" && text == \"Out of Stock\")):" +
                 "having(count > 1, count.tags.accountId == 1)";
+        ExternalCondition condition = new ExternalCondition(trigger.getId(), FIRING, DATA_ID, ALERTER_ID, expression);
+        Expression exp = new Expression(trigger, condition);
+        Collection<Event> results = runDrlWithEvents(exp.getDrl(), TestScenarios.customerRetentionScenario());
+        Assert.assertEquals(2, results.size());
+        List<Event> events = extractEvents(results.iterator().next());
+        Assert.assertEquals(2, events.size());
+        events = extractEvents(results.iterator().next());
+        Assert.assertEquals(2, events.size());
+    }
 
-        Expression exp = new Expression("Customer Retention Scenario", expression);
-        Assert.assertEquals("", exp.getDrl());
+    public static List<Event> extractEvents(Event e) {
+        List<Event> events = new ArrayList<>();
+        JsonUtil.fromJson(e.getContext().get("events"), ArrayList.class).stream()
+                .forEach(o -> {
+                    events.add(JsonUtil.fromJson(JsonUtil.toJson(o), Event.class));
+                });
+        return events;
     }
 }
