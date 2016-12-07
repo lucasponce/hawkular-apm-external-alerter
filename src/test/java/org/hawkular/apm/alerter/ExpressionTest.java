@@ -129,9 +129,11 @@ public class ExpressionTest {
         Collection<Event> results = runDrlWithEvents(exp.getDrl(), TestScenarios.customerRetentionScenario());
         Assert.assertEquals(2, results.size());
         Event result = results.iterator().next();
+        Assert.assertTrue(Arrays.asList("trace1", "trace4").contains(result.getContext().get("traceId")));
         List<Event> events = extractEvents(result);
         Assert.assertEquals(2, events.size());
         result = results.iterator().next();
+        Assert.assertTrue(Arrays.asList("trace1", "trace4").contains(result.getContext().get("traceId")));
         events = extractEvents(result);
         Assert.assertEquals(2, events.size());
     }
@@ -163,9 +165,6 @@ public class ExpressionTest {
         activeTriggers.add(new FullTrigger(trigger, null, Arrays.asList(condition)));
 
         Expression exp = new Expression(activeTriggers);
-        System.out.println("RULE: ");
-        System.out.println(exp.getDrl());
-
         Collection<Event> combinedScenarios = new ArrayList<>();
         combinedScenarios.addAll(TestScenarios.marketingScenario());
         combinedScenarios.addAll(TestScenarios.fraudScenario());
