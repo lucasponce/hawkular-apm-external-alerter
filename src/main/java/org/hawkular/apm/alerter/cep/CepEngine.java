@@ -21,7 +21,7 @@ import java.util.Collection;
 import javax.ejb.Singleton;
 import javax.ejb.Startup;
 
-import org.hawkular.alerts.api.model.condition.ExternalCondition;
+import org.hawkular.alerts.api.model.trigger.FullTrigger;
 import org.kie.api.KieBase;
 import org.kie.api.KieBaseConfiguration;
 import org.kie.api.io.ResourceType;
@@ -41,7 +41,7 @@ public class CepEngine {
 
     KieSession kieSession;
 
-    public void updateConditions(Collection<ExternalCondition> conditions) {
+    public void updateConditions(Collection<FullTrigger> activeTriggers) {
         // Here conditions will build the drl rules.
     }
 

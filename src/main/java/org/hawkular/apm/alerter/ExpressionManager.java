@@ -19,9 +19,9 @@ package org.hawkular.apm.alerter;
 import static org.hawkular.alerts.api.services.DefinitionsEvent.Type.TRIGGER_REMOVE;
 import static org.hawkular.alerts.api.services.DefinitionsEvent.Type.TRIGGER_UPDATE;
 
+import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.List;
 
 import javax.annotation.PostConstruct;
 import javax.ejb.Singleton;
@@ -30,6 +30,7 @@ import javax.inject.Inject;
 
 import org.hawkular.alerts.api.model.condition.Condition;
 import org.hawkular.alerts.api.model.condition.ExternalCondition;
+import org.hawkular.alerts.api.model.trigger.FullTrigger;
 import org.hawkular.alerts.api.model.trigger.Trigger;
 import org.hawkular.alerts.api.services.DefinitionsListener;
 import org.hawkular.alerts.api.services.DefinitionsService;
@@ -68,14 +69,14 @@ public class ExpressionManager {
 
     private void refresh() {
         try {
-            Set<ExternalCondition> activeConditions = new HashSet<>();
-
             // get all of the triggers tagged for hawkular metrics
             Collection<Trigger> triggers = definitions.getAllTriggersByTag(TAG_NAME, TAG_VALUE);
             log.info("Found [" + triggers.size() + "] External Metrics Triggers!");
 
-            Collection<Condition> conditions = null;
+            Collection<FullTrigger> activeTriggers = new ArrayList<>();
             for (Trigger trigger : triggers) {
+                Collection<Condition> conditions = null;
+                List<Condition> activeConditions = new ArrayList<>();
                 try {
                     if (trigger.isEnabled()) {
                         conditions = definitions.getTriggerConditions(trigger.getTenantId(), trigger.getId(), null);
@@ -97,9 +98,14 @@ public class ExpressionManager {
                         }
                     }
                 }
+                if (!activeConditions.isEmpty()) {
+                    FullTrigger activeTrigger = new FullTrigger();
+                    activeTrigger.setTrigger(trigger);
+                    activeTrigger.setConditions(activeConditions);
+                }
             }
-            log.infof("ActiveConditions: %s", activeConditions);
-            cep.updateConditions(activeConditions);
+            log.infof("ActiveTriggers: %s", activeTriggers);
+            cep.updateConditions(activeTriggers);
         } catch (Exception e) {
             log.error("Failed to fetch Triggers for external conditions.", e);
         }

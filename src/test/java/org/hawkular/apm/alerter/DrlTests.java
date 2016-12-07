@@ -41,10 +41,9 @@ import org.kie.internal.utils.KieHelper;
  */
 public class DrlTests {
 
-    static String testTenant = "28026b36-8fe4-4332-84c8-524e173a68bf";
-
     private void runDrlWithEvents(String drl, Collection<Event> events, List results) {
         final KieBaseConfiguration kieBaseConfiguration = KnowledgeBaseFactory.newKnowledgeBaseConfiguration();
+        // kieBaseConfiguration.setOption( EventProcessingOption.STREAM );
         final KieBase kieBase = new KieHelper().addContent(drl, ResourceType.DRL).build(kieBaseConfiguration);
         final KieSession kieSession = kieBase.newKieSession();
         kieSession.addEventListener(new DebugAgendaEventListener());
@@ -58,7 +57,7 @@ public class DrlTests {
         events.stream().forEach(e -> kieSession.insert(e));
 
         try {
-            Thread.sleep(2000);
+            Thread.sleep(250);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }

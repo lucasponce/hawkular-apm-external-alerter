@@ -16,7 +16,7 @@
  */
 package org.hawkular.apm.alerter;
 
-import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
@@ -24,6 +24,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.hawkular.alerts.api.model.condition.ExternalCondition;
+import org.hawkular.alerts.api.model.trigger.FullTrigger;
 import org.hawkular.alerts.api.model.trigger.Trigger;
 
 /**
@@ -66,27 +67,60 @@ public class Expression {
     private static final Pattern TAGS_SEARCH = Pattern.compile("tags\\.(\\w+)\\s");
     private static final int GROUP_INDEX = 1;
 
-    private String name;
+    private String expRuleName;
     private String alerterId;
     private String expression;
     private String tenantId;
     private String source;
     private String dataId;
 
+    private Set<String> declareFields = new HashSet<>();
+    private Set<String> ruleNames = new HashSet<>();
+
     private String drlGroupByDeclare;
     private String drlGroupByObject;
     private String drlGroupByConstraint;
+    private String drlGroupByResult;
     private Set<String> drlEventConstraints = new HashSet<>();
-    private Set<String> drlFunctions = new HashSet<>(Arrays.asList(EVENTS_FUNCTION));
+    private Set<String> drlFunctions = new HashSet<>();
     private Set<String> drlFunctionsConstraints = new HashSet<>();
 
     private String drl;
 
-    public Expression(Trigger trigger, ExternalCondition condition) {
+    public Expression(Collection<FullTrigger> activeTriggers) {
+        this(null, activeTriggers);
+    }
+
+    public Expression(String expiration, Collection<FullTrigger> activeTriggers) {
+        if (isEmpty(expiration)) {
+            expiration = "30m";
+        }
+        if (isEmpty(activeTriggers)) {
+            throw new IllegalArgumentException("ActiveTriggers must be not empty");
+        }
+        drl = DRL_HEADER + "\n";
+        drl += "  declare Event \n" +
+               "    @role( event ) \n" +
+               "    @expires( " + expiration + " ) \n" +
+               "  end \n\n";
+        activeTriggers.stream().forEach(fullTrigger -> {
+            fullTrigger.getConditions().forEach(condition -> {
+                if (condition instanceof ExternalCondition) {
+                    buildTriggerDrl(fullTrigger.getTrigger(), (ExternalCondition) condition);
+                    drl += "\n";
+                    drlEventConstraints.clear();
+                    drlFunctions.clear();
+                    drlFunctionsConstraints.clear();
+                }
+            });
+        });
+    }
+
+    private void buildTriggerDrl(Trigger trigger, ExternalCondition condition) {
         if (trigger == null || condition == null) {
             throw new IllegalArgumentException("Trigger or Condition must be not null");
         }
-        name = trigger.getName() + "-" + condition.getConditionId();
+        expRuleName = trigger.getName() + "-" + condition.getConditionId();
         alerterId = condition.getAlerterId();
         expression = condition.getExpression();
         tenantId = trigger.getTenantId();
@@ -115,13 +149,19 @@ public class Expression {
             throw new IllegalArgumentException("Expression [" + expression + "] has not a 'filter()' and 'having()' " +
                     "sections");
         }
+
+        drlFunctions.add(EVENTS_FUNCTION);
+
         if (section.length == 3) {
             parseHaving(section[2]);
         } else {
             parseFilter(section[2]);
             parseHaving(section[3]);
         }
-        buildDrl(name);
+        if (!ruleNames.contains(expRuleName)) {
+            ruleNames.add(expRuleName);
+            addTriggerDrl(expRuleName);
+        }
     }
 
     private void parseGroupBy(String section) {
@@ -141,29 +181,48 @@ public class Expression {
             field = innerSection;
         }
         String type = makeType(field);
-        drlGroupByObject = type + " ( $" + field + " : " + field + " )";
+        drlGroupByObject = type + " ( $tenantId : tenantId == \"" + tenantId + "\"," +
+                "$source : source == \"" + source + "\", " +
+                "$dataId : dataId == \"" + dataId + "\", $" + field + " : " + field + " )";
         if (tags) {
             drlGroupByConstraint = " tags[ \"" + field + "\" ] == $" + field + " ";
         } else {
             drlGroupByConstraint = " " + field + " == $" + field + " ";
         }
+        drlGroupByResult = "    result.addContext(\"" + field + "\", $" + field + "); \n";
         drlEventConstraints.add(drlGroupByConstraint);
-        drlGroupByDeclare =  "  declare " + type + " " + field + " : String end \n" +
-                             "  rule \"Extract " + field + "\" \n" +
-                             "  when \n" +
-                             "    Event ( tenantId == \"" + tenantId + "\", \n" +
-                             "            dataSource == \"" + source + "\", \n" +
-                             "            dataId == \"" + dataId + "\", \n" +
-                             "            $" + field + " : ";
-        if (tags) {
-            drlGroupByDeclare += "tags[ \"" + field + "\" ] != null ) \n ";
+        if (declareFields.contains(field)) {
+            drlGroupByDeclare =  "";
         } else {
-            drlGroupByDeclare += field + " != null ) \n ";
+            declareFields.add(field);
+            drlGroupByDeclare =  "  declare " + type + " \n" +
+                    "    tenantId : String \n" +
+                    "    source : String \n" +
+                    "    dataId : String \n" +
+                    "    " + field + " : String \n" +
+                    "  end \n\n";
         }
-        drlGroupByDeclare += "   not " + type + " ( " + field + " == $" + field + " ) \n " +
-                             " then \n " +
-                             "   insert ( new " + type + " ( $" + field + " ) ); \n " +
-                             " end \n ";
+        String extractRuleName = "Extract " + field + " from " + tenantId + "-" + source +"-" + dataId;
+        if (!ruleNames.contains(extractRuleName)) {
+            ruleNames.add(extractRuleName);
+            drlGroupByDeclare += "  rule \"" + extractRuleName + "\" \n" +
+                    "  when \n" +
+                    "    Event ( $tenantId : tenantId == \"" + tenantId + "\", \n" +
+                    "            $dataSource : dataSource == \"" + source + "\", \n" +
+                    "            $dataId : dataId == \"" + dataId + "\", \n" +
+                    "            $" + field + " : ";
+            if (tags) {
+                drlGroupByDeclare += "tags[ \"" + field + "\" ] != null ) \n";
+            } else {
+                drlGroupByDeclare += field + " != null ) \n";
+            }
+            drlGroupByDeclare += "   not " + type + " ( tenantId == $tenantId, " +
+                    "source == $dataSource, dataId == $dataId, " +
+                    "" + field + " == $" + field + " ) \n" +
+                    "  then \n" +
+                    "    insert ( new " + type + " ( $tenantId, $dataSource, $dataId, $" + field + " ) ); \n" +
+                    "  end \n\n";
+        }
     }
 
     private void parseFilter(String section) {
@@ -210,14 +269,14 @@ public class Expression {
         }
     }
 
-    private void buildDrl(String name) {
-        drl = DRL_HEADER + drlGroupByDeclare + " \n " +
-                " rule \"" + name + "\" \n " +
-                " when \n " +
-                "   " + drlGroupByObject + " \n " +
-                "   accumulate( $event : Event( tenantId == \"" + tenantId + "\", \n" +
-                "                                dataSource == \"" + source + "\", \n" +
-                "                                dataId == \"" + dataId + "\", \n";
+    private void addTriggerDrl(String name) {
+        drl += drlGroupByDeclare +
+                "  rule \"" + name + "\" \n" +
+                "  when \n " +
+                "   " + drlGroupByObject + " \n" +
+                "    accumulate( $event : Event( tenantId == $tenantId, \n" +
+                "                                dataSource == $source, \n" +
+                "                                dataId == $dataId, \n";
         Iterator<String> it = drlEventConstraints.iterator();
         while (it.hasNext()) {
             String eventConstraint = it.next();
@@ -243,16 +302,16 @@ public class Expression {
             }
         }
         drl += ") \n";
-        drl +=  " then \n" +
-                "   Event result = new Event(\"" + tenantId + "\", \n" +
-                "                            UUID.randomUUID().toString(), \n" +
-                "                            \"" + dataId +"\", \n" +
-                "                            \"" + alerterId + "\", \n" +
-                "                            \"" + expression.replaceAll("\"", "'") + "\"); \n" +
-                "   result.addContext(\"events\", JsonUtil.toJson($events)); \n" +
-                "   results.add( result ); \n" +
-                "   $events.stream().forEach(e -> retract( e )); \n" +
-                " end \n ";
+        drl +=  "  then \n" +
+                "    Event result = new Event(\"" + tenantId + "\", \n" +
+                "                             UUID.randomUUID().toString(), \n" +
+                "                             \"" + dataId +"\", \n" +
+                "                             \"" + alerterId + "\", \n" +
+                "                             \"" + expression.replaceAll("\"", "'") + "\"); \n" +
+                "    result.addContext(\"events\", JsonUtil.toJson($events)); \n" +
+                drlGroupByResult +
+                "    results.add( result ); \n" +
+                "  end \n";
     }
 
     public String getDrl() {
@@ -288,5 +347,9 @@ public class Expression {
 
     private static boolean isEmpty(String s) {
         return null == s || s.trim().isEmpty();
+    }
+
+    private static boolean isEmpty(Collection c) {
+        return null == c || c.isEmpty();
     }
 }
