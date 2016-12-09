@@ -40,6 +40,7 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.kie.api.KieBase;
 import org.kie.api.KieBaseConfiguration;
+import org.kie.api.conf.EventProcessingOption;
 import org.kie.api.io.ResourceType;
 import org.kie.api.runtime.KieSession;
 import org.kie.internal.KnowledgeBaseFactory;
@@ -53,6 +54,7 @@ public class ExpressionTest {
 
     private Collection<Event> runDrlWithEvents(String drl, Collection<Event> events) {
         final KieBaseConfiguration kieBaseConfiguration = KnowledgeBaseFactory.newKnowledgeBaseConfiguration();
+        kieBaseConfiguration.setOption( EventProcessingOption.STREAM );
         final KieBase kieBase = new KieHelper().addContent(drl, ResourceType.DRL).build(kieBaseConfiguration);
         final KieSession kieSession = kieBase.newKieSession();
         kieSession.addEventListener(new DebugAgendaEventListener());
