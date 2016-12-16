@@ -16,8 +16,10 @@
  */
 package org.hawkular.apm.alerter;
 
+import static org.hawkular.alerts.api.services.DefinitionsEvent.Type.TRIGGER_CREATE;
 import static org.hawkular.alerts.api.services.DefinitionsEvent.Type.TRIGGER_REMOVE;
 import static org.hawkular.alerts.api.services.DefinitionsEvent.Type.TRIGGER_UPDATE;
+import static org.hawkular.apm.alerter.ServiceNames.Service.DEFINITIONS_SERVICE;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -27,6 +29,7 @@ import javax.annotation.PostConstruct;
 import javax.ejb.Singleton;
 import javax.ejb.Startup;
 import javax.inject.Inject;
+import javax.naming.InitialContext;
 
 import org.hawkular.alerts.api.model.condition.Condition;
 import org.hawkular.alerts.api.model.condition.ExternalCondition;
@@ -53,7 +56,8 @@ public class ExpressionManager {
 
     private DefinitionsListener definitionsListener = null;
 
-    @Inject
+    private InitialContext ctx;
+
     private DefinitionsService definitions;
 
     @Inject
@@ -61,15 +65,25 @@ public class ExpressionManager {
 
     @PostConstruct
     public void init() {
+        try {
+            if (ctx == null) {
+                ctx = new InitialContext();
+            }
+            if (definitions == null) {
+                definitions = (DefinitionsService) ctx.lookup(ServiceNames.getServiceName(DEFINITIONS_SERVICE));
+            }
+        } catch (Exception e) {
+            log.fatal("Context cannot be instantiated", e);
+        }
         if (null == definitionsListener) {
             log.info("Registering Trigger UPDATE/REMOVE listener");
-            definitions.registerListener(e -> refresh(), TRIGGER_UPDATE, TRIGGER_REMOVE);
+            definitions.registerListener(e -> refresh(), TRIGGER_CREATE, TRIGGER_UPDATE, TRIGGER_REMOVE);
         }
     }
 
     private void refresh() {
         try {
-            // get all of the triggers tagged for hawkular metrics
+            // get all of the triggers tagged for this alerter
             Collection<Trigger> triggers = definitions.getAllTriggersByTag(TAG_NAME, TAG_VALUE);
             log.info("Found [" + triggers.size() + "] External Metrics Triggers!");
 
@@ -102,10 +116,13 @@ public class ExpressionManager {
                     FullTrigger activeTrigger = new FullTrigger();
                     activeTrigger.setTrigger(trigger);
                     activeTrigger.setConditions(activeConditions);
+                    activeTriggers.add(activeTrigger);
                 }
             }
-            log.infof("ActiveTriggers: %s", activeTriggers);
-            cep.updateConditions(activeTriggers);
+            if (!activeTriggers.isEmpty()) {
+                log.infof("ActiveTriggers: %s", activeTriggers);
+                cep.updateConditions(activeTriggers);
+            }
         } catch (Exception e) {
             log.error("Failed to fetch Triggers for external conditions.", e);
         }

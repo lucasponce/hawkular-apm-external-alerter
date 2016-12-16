@@ -17,21 +17,13 @@
 package org.hawkular.apm.alerter;
 
 import static org.hawkular.alerts.api.model.trigger.Mode.FIRING;
-import static org.hawkular.apm.alerter.TestScenarios.ALERTER_ID;
-import static org.hawkular.apm.alerter.TestScenarios.DATA_ID;
-import static org.hawkular.apm.alerter.TestScenarios.TEST_TENANT;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import org.drools.core.event.DebugAgendaEventListener;
-import org.drools.core.event.DebugRuleRuntimeEventListener;
 import org.drools.core.time.impl.PseudoClockScheduler;
 import org.hawkular.alerts.api.json.JsonUtil;
 import org.hawkular.alerts.api.model.condition.ExternalCondition;
@@ -58,6 +50,7 @@ public class ExpressionTest {
 
     public static final String TEST_TENANT = "28026b36-8fe4-4332-84c8-524e173a68bf";
     public static final String DATA_ID = "apm-data-id";
+    public static final String ALERTER_ID = "HawkularAPM";
 
     KieBaseConfiguration kieBaseConfiguration;
     KieBase kieBase;

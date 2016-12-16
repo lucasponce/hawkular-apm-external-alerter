@@ -17,19 +17,14 @@
 package org.hawkular.apm.alerter;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import org.drools.core.ClockType;
-import org.drools.core.event.DebugAgendaEventListener;
-import org.drools.core.event.DebugRuleRuntimeEventListener;
 import org.drools.core.time.impl.PseudoClockScheduler;
 import org.hawkular.alerts.api.model.event.Event;
 import org.junit.Assert;

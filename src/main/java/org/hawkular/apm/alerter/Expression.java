@@ -49,11 +49,15 @@ public class Expression {
 
     private static final String DRL_HEADER = "  import org.hawkular.alerts.api.model.event.Event; \n" +
             "  import org.hawkular.alerts.api.json.JsonUtil; \n" +
+            "  import org.hawkular.apm.alerter.cep.CepEngine; \n" +
             "  import org.kie.api.time.SessionClock; \n" +
+            "  import org.jboss.logging.Logger; \n" +
             "  import java.util.List; \n" +
             "  import java.util.UUID; \n\n" +
-            "  global List results; \n" +
-            "  global SessionClock clock;\n";
+            "  global Logger log; \n" +
+            "  global CepEngine cepEngine; \n" +
+            "  global SessionClock clock;\n" +
+            "  \n";
 
     private static final String BLANK = "                ";
 
@@ -124,7 +128,7 @@ public class Expression {
         drl += "  declare Event \n" +
                "    @role( event ) \n" +
                "    @expires( " + expiration + " ) \n" +
-                "   @timestamp( ctime ) \n" +
+               // "    @timestamp( ctime ) \n" +
                "  end \n\n";
         activeTriggers.stream().forEach(fullTrigger -> {
             fullTrigger.getConditions().forEach(condition -> {
@@ -354,7 +358,7 @@ public class Expression {
                 "                             \"" + expression.replaceAll("\"", "'") + "\"); \n" +
                 "    result.addContext(\"events\", JsonUtil.toJson($events)); \n" +
                 drlGroupByResult +
-                "    results.add( result ); \n" +
+                "    cepEngine.sendResult( result ); \n" +
                 "  end \n";
     }
 

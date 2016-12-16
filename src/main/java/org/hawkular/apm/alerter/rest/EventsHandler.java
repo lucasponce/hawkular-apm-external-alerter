@@ -22,6 +22,7 @@ import static org.hawkular.apm.alerter.rest.HawkularApmAlerterApp.TENANT_HEADER_
 
 import java.util.Collection;
 
+import javax.inject.Inject;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.HeaderParam;
 import javax.ws.rs.POST;
@@ -30,6 +31,7 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.core.Response;
 
 import org.hawkular.alerts.api.model.event.Event;
+import org.hawkular.apm.alerter.cep.CepEngine;
 import org.jboss.logging.Logger;
 
 /**
@@ -45,6 +47,9 @@ public class EventsHandler {
     @HeaderParam(TENANT_HEADER_NAME)
     String tenantId;
 
+    @Inject
+    private CepEngine cep;
+
     public EventsHandler() {
         log.debug("Creating instance.");
     }
@@ -59,7 +64,7 @@ public class EventsHandler {
                 return ResponseUtil.badRequest("Events are empty");
             } else {
                 events.stream().forEach(e -> e.setTenantId(tenantId));
-                log.infof("Events received: %s", events);
+                cep.processEvents(events);
                 return ResponseUtil.ok();
             }
         } catch (Exception e) {
