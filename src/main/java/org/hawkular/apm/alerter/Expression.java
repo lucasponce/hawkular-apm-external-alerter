@@ -31,6 +31,17 @@ import org.hawkular.alerts.api.model.trigger.Trigger;
  * Represent a DSL expression coming from an ExternalCondition which is parsed into a DRL format understandable
  * by the CEP engine.
  *
+ * Expression syntax:
+ *
+ *  <expression> ::= "event:groupBy(" <field> ")" [ ":window(" <window> ")" ] [ ":filter(" <filter> ]
+ *      [ ":having(" <having> ")" ]
+ *  <field> ::= [ "tag." | "context." ] <field name>
+ *  <window> ::= ( "time," <time_value> | "length," <numeric_value> )
+ *  <time_value> ::= [ <numeric_value> "d" ][ <numeric_value> "h" ][ <numeric_value> "m" ][ <numeric_value> "s" ]
+ *      [ <numeric_value> [ "ms" ]]
+ *  <filter> ::= <drools_expression>
+ *  <having> ::= <drools_expression>
+ *
  * @author Jay Shaughnessy
  * @author Lucas Ponce
  */
@@ -38,34 +49,44 @@ public class Expression {
 
     private static final String DRL_HEADER = "  import org.hawkular.alerts.api.model.event.Event; \n" +
             "  import org.hawkular.alerts.api.json.JsonUtil; \n" +
+            "  import org.kie.api.time.SessionClock; \n" +
             "  import java.util.List; \n" +
-            "  import java.util.UUID; \n" +
-            "  global java.util.List results; \n";
-    private static final String SEPARATOR_TOKEN = ":";
-    private static final String COMMA_TOKEN = ",";
-    private static final String EVENT_TOKEN = "event";
-    private static final String GROUP_BY_TOKEN = "groupBy(";
-    private static final String TAGS_TOKEN = "tags.";
-    private static final String FILTER_TOKEN = "filter(";
-    private static final String HAVING_TOKEN = "having(";
-    private static final String CTIME_CONSTRAINT = "$ctime : ctime";
-    private static final String FIRST_TIME_TOKEN = "firstTime ";
-    private static final String FIRST_TIME_VARIABLE = "\\$firstTime ";
-    private static final String FIRST_TIME_FUNCTION = "$firstTime : min( $ctime )";
-    private static final String LAST_TIME_TOKEN = "lastTime ";
-    private static final String LAST_TIME_VARIABLE = "\\$lastTime ";
-    private static final String LAST_TIME_FUNCTION = "$lastTime : max( $ctime )";
-    private static final String COUNT_TAGS_TOKEN = "count.tags.";
-    private static final String COUNT_TOKEN = "count ";
-    private static final String COUNT_VARIABLE = "\\$count ";
-    private static final String COUNT_FUNCTION = "$count : count( $event )";
-
-    private static final String EVENTS_FUNCTION = "$events : collectList( $event )";
+            "  import java.util.UUID; \n\n" +
+            "  global List results; \n" +
+            "  global SessionClock clock;\n";
 
     private static final String BLANK = "                ";
 
-    private static final Pattern TAGS_SEARCH = Pattern.compile("tags\\.(\\w+)\\s");
+    private static final String CONTEXT = "context";
+    private static final String DEFAULT_EXPIRATION = "30m";
+
+    private static final String FUNCTION_COUNT = "$count : count( $event )";
+    private static final String FUNCTION_EVENTS = "$events : collectList( $event )";
+
     private static final int GROUP_INDEX = 1;
+
+    private static final Pattern SEARCH_CONTEXT = Pattern.compile("context\\.(\\w+)\\s");
+    private static final Pattern SEARCH_TAGS = Pattern.compile("tags\\.(\\w+)\\s");
+
+    private static final String TAGS = "tags";
+
+    private static final String TOKEN_COMMA = ",";
+    private static final String TOKEN_CONTEXT = CONTEXT + ".";
+    private static final String TOKEN_COUNT = "count ";
+    private static final String TOKEN_COUNT_CONTEXT = "count.context.";
+    private static final String TOKEN_COUNT_TAGS = "count.tags.";
+    private static final int    TOKEN_END_PARENTHESIS = ')';
+    private static final String TOKEN_EVENT = "event";
+    private static final String TOKEN_FILTER = "filter(";
+    private static final String TOKEN_GROUP_BY = "groupBy(";
+    private static final String TOKEN_HAVING = "having(";
+    private static final String TOKEN_LENGTH = "length,";
+    private static final String TOKEN_SEPARATOR = ":";
+    private static final String TOKEN_TAGS = TAGS + ".";
+    private static final String TOKEN_TIME = "time,";
+    private static final String TOKEN_WINDOW = "window(";
+
+    private static final String VARIABLE_COUNT = "\\$count ";
 
     private String expRuleName;
     private String alerterId;
@@ -81,6 +102,7 @@ public class Expression {
     private String drlGroupByObject;
     private String drlGroupByConstraint;
     private String drlGroupByResult;
+    private String drlWindow;
     private Set<String> drlEventConstraints = new HashSet<>();
     private Set<String> drlFunctions = new HashSet<>();
     private Set<String> drlFunctionsConstraints = new HashSet<>();
@@ -93,7 +115,7 @@ public class Expression {
 
     public Expression(String expiration, Collection<FullTrigger> activeTriggers) {
         if (isEmpty(expiration)) {
-            expiration = "30m";
+            expiration = DEFAULT_EXPIRATION;
         }
         if (isEmpty(activeTriggers)) {
             throw new IllegalArgumentException("ActiveTriggers must be not empty");
@@ -102,6 +124,7 @@ public class Expression {
         drl += "  declare Event \n" +
                "    @role( event ) \n" +
                "    @expires( " + expiration + " ) \n" +
+                "   @timestamp( ctime ) \n" +
                "  end \n\n";
         activeTriggers.stream().forEach(fullTrigger -> {
             fullTrigger.getConditions().forEach(condition -> {
@@ -126,38 +149,38 @@ public class Expression {
         tenantId = trigger.getTenantId();
         source = trigger.getSource();
         dataId = condition.getDataId();
+        drlWindow = "";
 
         if (isEmpty(expression)) {
             throw new IllegalArgumentException("Expression must be not null");
         }
-        String[] section = expression.split(SEPARATOR_TOKEN);
-        if (section.length < 3 || section.length > 4) {
+        String[] section = expression.split(TOKEN_SEPARATOR);
+        if (section.length < 2 || section.length > 5) {
             throw new IllegalArgumentException("Wrong sections for expression [" + expression + "]");
         }
-        if (!section[0].equals(EVENT_TOKEN)) {
+        if (!section[0].equals(TOKEN_EVENT)) {
             throw new IllegalArgumentException("Expression [" + expression + "] must start with 'event'");
         }
-        if (!section[1].startsWith(GROUP_BY_TOKEN)) {
+        if (!section[1].startsWith(TOKEN_GROUP_BY)) {
             throw new IllegalArgumentException("Expression [" + expression + "] must contain a 'groupBy()' section");
         }
         parseGroupBy(section[1]);
 
-        if (section.length == 3 && !section[2].startsWith(HAVING_TOKEN)) {
-            throw new IllegalArgumentException("Expression [" + expression + "] has not a 'having()' section");
-        }
-        if (section.length == 4 && !section[2].startsWith(FILTER_TOKEN) && !section[3].startsWith(HAVING_TOKEN)) {
-            throw new IllegalArgumentException("Expression [" + expression + "] has not a 'filter()' and 'having()' " +
-                    "sections");
+        drlFunctions.add(FUNCTION_EVENTS);
+
+        for (int i = 2; i < section.length; i++) {
+            if (section[i].startsWith(TOKEN_WINDOW)) {
+                parseWindow(section[i]);
+            } else if (section[i].startsWith(TOKEN_FILTER)) {
+                parseFilter(section[i]);
+            } else if (section[i].startsWith(TOKEN_HAVING)) {
+                parseHaving(section[i]);
+            } else {
+                throw new IllegalArgumentException("Expression [" + expression + "] contains an invalid '" + section[i]
+                        + "' section");
+            }
         }
 
-        drlFunctions.add(EVENTS_FUNCTION);
-
-        if (section.length == 3) {
-            parseHaving(section[2]);
-        } else {
-            parseFilter(section[2]);
-            parseHaving(section[3]);
-        }
         if (!ruleNames.contains(expRuleName)) {
             ruleNames.add(expRuleName);
             addTriggerDrl(expRuleName);
@@ -165,18 +188,24 @@ public class Expression {
     }
 
     private void parseGroupBy(String section) {
-        int endSection = section.lastIndexOf(')');
+        int endSection = section.lastIndexOf(TOKEN_END_PARENTHESIS);
         if (endSection == -1) {
             throw new IllegalArgumentException("Expression [" + section + " must contain a valid 'groupBy()'");
         }
-        String innerSection = section.substring(GROUP_BY_TOKEN.length(), endSection).trim();
+        String innerSection = section.substring(TOKEN_GROUP_BY.length(), endSection).trim();
         boolean tags = false;
-        if (innerSection.startsWith(TAGS_TOKEN)) {
+        boolean context = false;
+        if (innerSection.startsWith(TOKEN_TAGS)) {
             tags = true;
+        }
+        if (innerSection.startsWith(TOKEN_CONTEXT)) {
+            context = true;
         }
         String field;
         if (tags) {
-            field = innerSection.substring(TAGS_TOKEN.length());
+            field = innerSection.substring(TOKEN_TAGS.length());
+        } else if (context) {
+            field = innerSection.substring(TOKEN_CONTEXT.length());
         } else {
             field = innerSection;
         }
@@ -186,6 +215,8 @@ public class Expression {
                 "$dataId : dataId == \"" + dataId + "\", $" + field + " : " + field + " )";
         if (tags) {
             drlGroupByConstraint = " tags[ \"" + field + "\" ] == $" + field + " ";
+        } else if (context) {
+            drlGroupByConstraint = " context[ \"" + field + "\" ] == $" + field + " ";
         } else {
             drlGroupByConstraint = " " + field + " == $" + field + " ";
         }
@@ -213,6 +244,8 @@ public class Expression {
                     "            $" + field + " : ";
             if (tags) {
                 drlGroupByDeclare += "tags[ \"" + field + "\" ] != null ) \n";
+            } else if (context) {
+                drlGroupByDeclare += "context[ \"" + field + "\" ] != null ) \n";
             } else {
                 drlGroupByDeclare += field + " != null ) \n";
             }
@@ -225,16 +258,34 @@ public class Expression {
         }
     }
 
+    private void parseWindow(String section) {
+        int endSection = section.lastIndexOf(TOKEN_END_PARENTHESIS);
+        if (endSection == -1) {
+            throw new IllegalArgumentException("Expression [" + section + " must contain a valid 'window()'");
+        }
+        String innerSection = section.substring(TOKEN_WINDOW.length(), endSection).trim();
+        if (innerSection.startsWith(TOKEN_TIME)) {
+            drlWindow += " over window:time(" + innerSection.substring(TOKEN_TIME.length()) + ")";
+        } else if (innerSection.startsWith(TOKEN_LENGTH)) {
+            drlWindow += " over window:length(" + innerSection.substring(TOKEN_LENGTH.length()) + ")";
+        } else {
+            new IllegalArgumentException("Expresion [" + section + " must contain a valid 'time' or 'length' token");
+        }
+    }
+
     private void parseFilter(String section) {
-        int endSection = section.lastIndexOf(')');
+        int endSection = section.lastIndexOf(TOKEN_END_PARENTHESIS);
         if (endSection == -1) {
             throw new IllegalArgumentException("Expression [" + section + " must contain a valid 'filter()'");
         }
-        String innerSection = section.substring(FILTER_TOKEN.length(), endSection).trim();
-        String[] filterConstraints = innerSection.split(COMMA_TOKEN);
+        String innerSection = section.substring(TOKEN_FILTER.length(), endSection).trim();
+        String[] filterConstraints = innerSection.split(TOKEN_COMMA);
         for (int i = 0; i < filterConstraints.length; i++) {
-            if (filterConstraints[i].contains(TAGS_TOKEN)) {
-                filterConstraints[i] = replaceTags(filterConstraints[i]);
+            if (filterConstraints[i].contains(TOKEN_CONTEXT)) {
+                filterConstraints[i] = replaceMap(filterConstraints[i], SEARCH_CONTEXT, CONTEXT);
+            }
+            if (filterConstraints[i].contains(TOKEN_TAGS)) {
+                filterConstraints[i] = replaceMap(filterConstraints[i], SEARCH_TAGS, TAGS);
             }
             drlEventConstraints.add(filterConstraints[i]);
         }
@@ -245,25 +296,18 @@ public class Expression {
         if (endSection == -1) {
             throw new IllegalArgumentException("Expression [" + section + " must contain a valid 'having()'");
         }
-        String innerSection = section.substring(HAVING_TOKEN.length(), endSection).trim();
-        String[] havingConstraints = innerSection.split(COMMA_TOKEN);
+        String innerSection = section.substring(TOKEN_HAVING.length(), endSection).trim();
+        String[] havingConstraints = innerSection.split(TOKEN_COMMA);
         for (int i = 0; i < havingConstraints.length; i++) {
-            if (havingConstraints[i].contains(FIRST_TIME_TOKEN)) {
-                havingConstraints[i] = havingConstraints[i].replaceAll(FIRST_TIME_TOKEN, FIRST_TIME_VARIABLE);
-                drlEventConstraints.add(CTIME_CONSTRAINT);
-                drlFunctions.add(FIRST_TIME_FUNCTION);
+            if (havingConstraints[i].contains(TOKEN_COUNT)) {
+                havingConstraints[i] = havingConstraints[i].replaceAll(TOKEN_COUNT, VARIABLE_COUNT);
+                drlFunctions.add(FUNCTION_COUNT);
             }
-            if (havingConstraints[i].contains(LAST_TIME_TOKEN)) {
-                havingConstraints[i] = havingConstraints[i].replaceAll(LAST_TIME_TOKEN, LAST_TIME_VARIABLE);
-                drlEventConstraints.add(CTIME_CONSTRAINT);
-                drlFunctions.add(LAST_TIME_FUNCTION);
+            if (havingConstraints[i].contains(TOKEN_COUNT_CONTEXT)) {
+                havingConstraints[i] = processCountContext(havingConstraints[i]);
             }
-            if (havingConstraints[i].contains(COUNT_TAGS_TOKEN)) {
+            if (havingConstraints[i].contains(TOKEN_COUNT_TAGS)) {
                 havingConstraints[i] = processCountTags(havingConstraints[i]);
-            }
-            if (havingConstraints[i].contains(COUNT_TOKEN)) {
-                havingConstraints[i] = havingConstraints[i].replaceAll(COUNT_TOKEN, COUNT_VARIABLE);
-                drlFunctions.add(COUNT_FUNCTION);
             }
             drlFunctionsConstraints.add(havingConstraints[i].trim());
         }
@@ -285,7 +329,7 @@ public class Expression {
                 drl += ", \n";
             }
         }
-        drl += "); \n";
+        drl += ") " + drlWindow + "; \n";
         it = drlFunctions.iterator();
         while (it.hasNext()) {
             drl += BLANK + it.next();
@@ -318,29 +362,39 @@ public class Expression {
         return drl;
     }
 
+    private String processCountContext(String str) {
+        int start = str.indexOf(TOKEN_COUNT_CONTEXT);
+        int end = str.indexOf(' ', start);
+        String countContext = str.substring(start, end);
+        String field = countContext.substring(TOKEN_COUNT_CONTEXT.length());
+        drlFunctions.add("$" + field + "ContextSet : collectSet($event.getContext().get(\"" + field + "\") )");
+        return str.replaceAll(countContext, "\\$" + field + "ContextSet.size");
+    }
+
+
     private String processCountTags(String str) {
-        int start = str.indexOf(COUNT_TAGS_TOKEN);
+        int start = str.indexOf(TOKEN_COUNT_TAGS);
         int end = str.indexOf(' ', start);
         String countTags = str.substring(start, end);
-        String field = countTags.substring(COUNT_TAGS_TOKEN.length());
-        drlFunctions.add("$" + field + "Set : collectSet($event.getTags().get(\"" + field + "\") )");
-        return str.replaceAll(countTags, "\\$" + field + "Set.size");
+        String field = countTags.substring(TOKEN_COUNT_TAGS.length());
+        drlFunctions.add("$" + field + "TagsSet : collectSet($event.getTags().get(\"" + field + "\") )");
+        return str.replaceAll(countTags, "\\$" + field + "TagsSet.size");
     }
 
     private static String makeType(String field) {
         return field.substring(0, 1).toUpperCase() + field.substring(1);
     }
 
-    private static String replaceTags(String str) {
+    private static String replaceMap(String str, Pattern pattern, String map) {
         String newStr = str;
-        Matcher matcher = TAGS_SEARCH.matcher(str);
+        Matcher matcher = pattern.matcher(str);
         int index = 0;
         while (matcher.find(index)) {
             int end = matcher.end();
             String original = matcher.group();
             String field = matcher.group(GROUP_INDEX);
             index = end;
-            newStr = newStr.replaceAll(original, "tags[\"" + field + "\"]");
+            newStr = newStr.replaceAll(original, map + "[\"" + field + "\"]");
         }
         return newStr;
     }
