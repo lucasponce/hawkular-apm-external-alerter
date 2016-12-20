@@ -55,7 +55,7 @@ public class Expression {
             "  import java.util.List; \n" +
             "  import java.util.UUID; \n\n" +
             "  global Logger log; \n" +
-            "  global CepEngine cepEngine; \n" +
+            "  global CepEngine results; \n" +
             "  global SessionClock clock;\n" +
             "  \n";
 
@@ -128,7 +128,7 @@ public class Expression {
         drl += "  declare Event \n" +
                "    @role( event ) \n" +
                "    @expires( " + expiration + " ) \n" +
-               // "    @timestamp( ctime ) \n" +
+               "    @timestamp( ctime ) \n" +
                "  end \n\n";
         activeTriggers.stream().forEach(fullTrigger -> {
             fullTrigger.getConditions().forEach(condition -> {
@@ -358,7 +358,7 @@ public class Expression {
                 "                             \"" + expression.replaceAll("\"", "'") + "\"); \n" +
                 "    result.addContext(\"events\", JsonUtil.toJson($events)); \n" +
                 drlGroupByResult +
-                "    cepEngine.sendResult( result ); \n" +
+                "    results.sendResult( result ); \n" +
                 "  end \n";
     }
 

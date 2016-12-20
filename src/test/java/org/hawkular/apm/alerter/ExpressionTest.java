@@ -20,6 +20,7 @@ import static org.hawkular.alerts.api.model.trigger.Mode.FIRING;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -30,6 +31,7 @@ import org.hawkular.alerts.api.model.condition.ExternalCondition;
 import org.hawkular.alerts.api.model.event.Event;
 import org.hawkular.alerts.api.model.trigger.FullTrigger;
 import org.hawkular.alerts.api.model.trigger.Trigger;
+import org.hawkular.apm.alerter.cep.CepEngine;
 import org.junit.Assert;
 import org.junit.Test;
 import org.kie.api.KieBase;
@@ -75,7 +77,18 @@ public class ExpressionTest {
         // kieSession.addEventListener(new DebugRuleRuntimeEventListener());
         results = new ArrayList<>();
         kieSession.setGlobal("clock", clock);
-        kieSession.setGlobal("results", results);
+        kieSession.setGlobal("results", new CepEngine() {
+            @Override
+            public void sendResult(Event event) {
+                results.add(event);
+            }
+
+            @Override
+            public void updateConditions(Collection<FullTrigger> activeTriggers) { }
+
+            @Override
+            public void processEvents(Collection<Event> events) { }
+        });
     }
 
     private void stopSession() {

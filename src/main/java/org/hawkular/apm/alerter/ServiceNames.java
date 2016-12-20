@@ -35,11 +35,13 @@ public class ServiceNames {
 
     private static String JNDI_ACTIONS_METRICS = "java:global/hawkular-metrics/hawkular-alerts/CassActionsServiceImpl";
     private static String JNDI_ACTIONS_STANDALONE = "java:global/hawkular-alerts/CassActionsServiceImpl";
+    private static String JNDI_ALERTS_METRICS = "java:global/hawkular-metrics/hawkular-alerts/CassAlertsServiceImpl";
+    private static String JNDI_ALERTS_STANDALONE = "java:global/hawkular-alerts/CassAlertsServiceImpl";
     private static String JNDI_DEFINITIONS_METRICS = "java:global/hawkular-metrics/hawkular-alerts/CassDefinitionsServiceImpl";
     private static String JNDI_DEFINITIONS_STANDALONE = "java:global/hawkular-alerts/CassDefinitionsServiceImpl";
 
     public enum Service {
-        ACTIONS_SERVICE, DEFINITIONS_SERVICE
+        ACTIONS_SERVICE, ALERTS_SERVICE, DEFINITIONS_SERVICE
     }
 
     private static Map<Service, String> services;
@@ -54,9 +56,11 @@ public class ServiceNames {
         }
         if (STANDALONE.equals(env)) {
             services.put(Service.ACTIONS_SERVICE, JNDI_ACTIONS_STANDALONE);
+            services.put(Service.ALERTS_SERVICE, JNDI_ALERTS_STANDALONE);
             services.put(Service.DEFINITIONS_SERVICE, JNDI_DEFINITIONS_STANDALONE);
         } else {
             services.put(Service.ACTIONS_SERVICE, JNDI_ACTIONS_METRICS);
+            services.put(Service.ALERTS_SERVICE, JNDI_ALERTS_METRICS);
             services.put(Service.DEFINITIONS_SERVICE, JNDI_DEFINITIONS_METRICS);
         }
     }

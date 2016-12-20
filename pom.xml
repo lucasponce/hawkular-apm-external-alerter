@@ -36,7 +36,7 @@
   <properties>
     <version.javaee.spec>7.0</version.javaee.spec>
     <version.org.drools>6.4.0.Final</version.org.drools>
-    <version.org.hawkular.alerts>1.4.0.Final-SNAPSHOT</version.org.hawkular.alerts>
+    <version.org.hawkular.alerts>1.5.0-SNAPSHOT</version.org.hawkular.alerts>
     <version.org.infinispan.wildfly>8.0.1.Final</version.org.infinispan.wildfly>
     <version.org.slf4j>1.7.2</version.org.slf4j>
   </properties>
