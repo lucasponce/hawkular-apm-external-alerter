@@ -106,11 +106,14 @@ public class CepEngineImpl implements CepEngine {
     @Lock(LockType.READ)
     public void sendResult(Event event) {
         log.debugf("Resulted event %s", event);
-        try {
-            alertsService.sendEvents(Arrays.asList(event));
-        } catch (Exception e) {
-            log.error("Error storing resulting events.", e);
-        }
+        executor.submit(() -> {
+            try {
+                alertsService.sendEvents(Arrays.asList(event));
+            } catch (Exception e) {
+                log.error("Error sending result events.", e);
+            }
+
+        });
     }
 
     public void updateConditions(Collection<FullTrigger> activeTriggers) {
